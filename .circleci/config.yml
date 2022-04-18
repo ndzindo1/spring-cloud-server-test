@@ -1,0 +1,102 @@
+# Use the latest 2.1 version of CircleCI pipeline process engine. See: https://circleci.com/docs/2.0/configuration-reference
+version: 2.1
+
+jobs:
+  install_gradle:
+    docker:
+      - image: circleci/openjdk:11.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - gradle-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
+      - run: sudo apt-get update
+      - run: sudo apt-get install gradle
+      - run:
+          name: Install google cloud sdk
+          command: |
+            echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+            sudo apt-get install apt-transport-https ca-certificates gnupg
+            curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+            sudo apt-get update && sudo apt-get install google-cloud-sdk
+      - run:
+          name: Set up gcloud
+          command: |
+            echo $GCLOUD_SERVICE_ACCOUNT_KEY | gcloud auth activate-service-account ${GCLOUD_SERVICE_ACCOUNT} --key-file=-
+            gcloud --quiet config set project ${GOOGLE_PROJECT_ID}
+            gcloud --quiet config set compute/zone ${GCLOUD_COMPUTE_ZONE}
+            gcloud --quiet services enable appengine.googleapis.com
+      - save_cache:
+          paths:
+            - ~./gradle
+          key:
+            gradle-{{ checksum "build.gradle.kts" }}
+
+  gradle_build:
+    docker:
+      - image: circleci/openjdk:11.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - gradle-{{ checksum "build.gradle.kts" }}
+      - run: chmod +x gradlew
+      - run: ./gradlew build
+      - store_test_results:
+          path: build/test-results
+      - store_artifacts:
+          path: build/test-results/test
+      - persist_to_workspace:
+          root: .
+          paths: 
+            - build/resources
+            - build/libs
+            - app.yaml
+
+  deploy:
+    docker:
+      - image: google/cloud-sdk
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - setup_remote_docker:
+          version: 19.03.13
+      - run:
+          name: Set up gcloud
+          command: |
+            echo $GCLOUD_SERVICE_ACCOUNT_KEY | gcloud auth activate-service-account ${GCLOUD_SERVICE_ACCOUNT} --key-file=-
+            gcloud --quiet config set project ${GOOGLE_PROJECT_ID}
+            gcloud --quiet config set compute/zone ${GCLOUD_COMPUTE_ZONE}
+            gcloud --quiet services enable appengine.googleapis.com
+      - run:
+          name: Build and deploy Docker image to Google's Container Registry
+          command: |
+            docker build --tag $CIRCLE_BUILD_NUM .
+            gcloud auth configure-docker --quiet --project ${GOOGLE_PROJECT_ID}
+            docker tag $CIRCLE_BUILD_NUM eu.gcr.io/${GOOGLE_PROJECT_ID}/${CIRCLE_BUILD_NUM}
+            docker push eu.gcr.io/${GOOGLE_PROJECT_ID}/${CIRCLE_BUILD_NUM}
+#      - deploy:
+#          name: Inject env variables into app.yaml
+#          command: sh ./app.yaml.sh > ./app.yaml
+      - deploy:
+          name: Deploying to App Engine
+          command: >
+            gcloud app deploy
+            app.yaml
+            --image-url eu.gcr.io/${GOOGLE_PROJECT_ID}/${CIRCLE_BUILD_NUM}
+            --stop-previous-version
+
+workflows:
+  deploy:
+    jobs:
+      - install_gradle
+      - gradle_build:
+          requires:
+            - install_gradle
+      - deploy:
+          requires:
+            - gradle_build
+          filters:
+            branches:
+              only: master
