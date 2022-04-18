@@ -7,9 +7,9 @@ jobs:
       - image: circleci/openjdk:11.0
     steps:
       - checkout
-      - restore_cache:
-          keys:
-            - gradle-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
+#      - restore_cache:
+#          keys:
+#            - gradle-{{ .Branch }}-{{ checksum "build.gradle.kts" }}
       - run: sudo apt-get update
       - run: sudo apt-get install gradle
       - run:
@@ -26,11 +26,11 @@ jobs:
             gcloud --quiet config set project ${GOOGLE_PROJECT_ID}
             gcloud --quiet config set compute/zone ${GCLOUD_COMPUTE_ZONE}
             gcloud --quiet services enable appengine.googleapis.com
-      - save_cache:
-          paths:
-            - ~./gradle
-          key:
-            gradle-{{ checksum "build.gradle.kts" }}
+#      - save_cache:
+#          paths:
+#            - ~./gradle
+#          key:
+#            gradle-{{ checksum "build.gradle.kts" }}
 
   gradle_build:
     docker:
