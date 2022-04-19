@@ -37,9 +37,9 @@ jobs:
       - image: circleci/openjdk:11.0
     steps:
       - checkout
-      - restore_cache:
-          keys:
-            - gradle-{{ checksum "build.gradle.kts" }}
+#      - restore_cache:
+#          keys:
+#            - gradle-{{ checksum "build.gradle.kts" }}
       - run: chmod +x gradlew
       - run: ./gradlew build
       - store_test_results:
